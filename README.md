@@ -1,77 +1,80 @@
 # Integration Calculator (GUI)
 
-A Python-based graphical integration calculator built with Tkinter.
-This project provides a user-friendly interface for computing symbolic and numerical integrals, visualizing functions, and working with improper integrals.
+This project is a Python-based graphical integration calculator built with Tkinter.  
+It supports symbolic integration, multiple numerical integration methods, improper integrals, real-time function plotting, and a multilingual user interface.
 
-The calculator is designed to accept natural mathematical input (e.g. 2pi, 2(x+1), e^x) while maintaining robust and accurate parsing.
+The application is designed for educational and exploratory use in calculus and numerical analysis.
 
-Features
+---
 
-Symbolic Integration
-	•	Indefinite and definite integrals
-	•	Exact symbolic results using SymPy
-	•	Supports constants such as π and e
+## Features
 
-Numerical Integration
+### Symbolic Integration
+- Indefinite integrals
+- Definite integrals with exact results
+- Automatic simplification using SymPy
+- Supports implicit multiplication (e.g. `2x`, `2pi`, `2(x+1)`)
 
-The following numerical methods are available:
-	•	Trapezoidal Rule
-	•	Simpson’s Rule
-	•	Simpson’s 3/8 Rule
-	•	Romberg Integration
-	•	Gaussian Quadrature (Gauss–Legendre)
-	•	Adaptive Simpson (via scipy.integrate.quad)
-	•	Monte Carlo Integration (stratified sampling)
+### Numerical Integration Methods
+- Rectangle Rule
+- Trapezoidal Rule
+- Simpson’s Rule
+- Simpson 3/8 Rule
+- Romberg Integration
+- Gaussian Quadrature (Gauss–Legendre)
+- Adaptive Simpson (via `scipy.integrate.quad`)
+- Monte Carlo Integration (stratified sampling)
 
-Improper Integrals
-	•	Supports infinite bounds using -inf and inf
-	•	Automatic handling without plotting infinite intervals
+### Improper Integrals
+- Supports infinite limits using `-inf` and `inf`
+- Symbolic evaluation for convergence
 
-Expression Parsing
-	•	Supports implicit multiplication (2pi, 3x, 2(x+1))
-	•	Supports both exp(x) and e^x
-	•	Correct handling of standard functions (sin, cos, log, etc.)
-	•	Uses SymPy’s official implicit multiplication parser for reliability
+### Graphical User Interface
+- Built with Tkinter
+- Embedded Matplotlib plotting
+- Interactive navigation toolbar
+- Progress bar for long numerical computations
+- Scrollable calculation history
 
-GUI
-	•	Built with Tkinter
-	•	Embedded Matplotlib function plot
-	•	Progress bar for long numerical computations
-	•	Calculation history panel
-	•	Multi-language interface:
-	•	English
-	•	中文（简体）
-	•	國語（繁体）
-	•	日本語
-	•	한국어
-	•	Español
-	•	Français
-	•	العربية
-	•	हिन्दी
+### Multilingual Interface
+Supported languages include:
+- English
+- Simplified Chinese
+- Traditional Chinese
+- Japanese
+- Korean
+- Spanish
+- French
+- Arabic
+- Hindi
 
-Note: I do not speak Korean. All Korean text was written using a translator.
-If you are fluent in Korean and notice any issues, I would greatly appreciate corrections.
+---
 
-Requirements
-	•	Python 3.9 or higher
+## Supported Mathematical Input
 
-Required Python Packages
+### Functions and Constants
+- Trigonometric: `sin(x)`, `cos(x)`, `tan(x)`
+- Logarithmic: `ln(x)`, `log(x)`, `log10(x)`
+- Exponential: `exp(x)`, `e^x`
+- Roots and powers: `sqrt(x)`, `x^n`
+- Constants: `pi`, `e`
+- Infinity: `inf`, `-inf`
 
-Install dependencies using pip:
+### Implicit Multiplication
+The parser supports implicit multiplication using SymPy’s official parser:
+- `2x` → `2*x`
+- `2pi` → `2*pi`
+- `2(x+1)` → `2*(x+1)`
+
+---
+
+## Requirements
+
+- Python 3.9 or later
+
+### Python Dependencies
+
+Install required packages using pip:
+
+```bash
 pip install numpy sympy scipy matplotlib
-
-If the above command does not work correctly, try:
-/usr/local/bin/python3 -m pip install numpy sympy scipy matplotlib
-
-Running the Program
-
-Run the main script directly:
-python Integral_Calculator.py
-
-
-The GUI will launch automatically.
-
-Notes
-	•	The calculator is intended for single-variable functions in x
-	•	Symbolic integration may fail for functions without closed-form antiderivatives
-	•	Numerical methods require finite bounds unless otherwise stated

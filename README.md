@@ -1,5 +1,4 @@
 # Integration Calculator (GUI)
-
 A Python-based graphical integration calculator built with **Tkinter**, supporting:
 
 - Symbolic integration (via SymPy)
@@ -8,7 +7,6 @@ A Python-based graphical integration calculator built with **Tkinter**, supporti
 - Real-time function plotting
 - Multi-language UI (English / 中文 / 日本語 / 한국어)
 
----
 
 ## Features
 
@@ -34,7 +32,6 @@ A Python-based graphical integration calculator built with **Tkinter**, supporti
   - Calculation history
   - Multi-language interface
 
----
 
 ## Requirements
 

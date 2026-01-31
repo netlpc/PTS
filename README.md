@@ -43,8 +43,5 @@ Install dependencies using pip:
 
 ```bash
 pip install numpy sympy scipy matplotlib
-
-
 (If that one is not functioning well, try this)
-```bash
 /usr/local/bin/python3 -m pip install numpy scipy sympy matplotlib

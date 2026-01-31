@@ -1,4 +1,4 @@
-# 🧮 Integration Calculator (GUI)
+# Integration Calculator (GUI)
 
 A Python-based graphical integration calculator built with **Tkinter**, supporting:
 
@@ -10,7 +10,7 @@ A Python-based graphical integration calculator built with **Tkinter**, supporti
 
 ---
 
-## ✨ Features
+## Features
 
 - **Symbolic Integration**
   - Indefinite & definite integrals
@@ -36,7 +36,7 @@ A Python-based graphical integration calculator built with **Tkinter**, supporti
 
 ---
 
-## 🛠 Requirements
+## Requirements
 
 - **Python 3.9 or higher**
 

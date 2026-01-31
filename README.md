@@ -1,4 +1,4 @@
-#Integration Calculator (GUI)
+# Integration Calculator (GUI)
 
 A Python-based graphical integration calculator built with Tkinter.
 This project provides a user-friendly interface for computing symbolic and numerical integrals, visualizing functions, and working with improper integrals.

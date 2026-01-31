@@ -5,7 +5,7 @@ A Python-based graphical integration calculator built with **Tkinter**, supporti
 - Multiple numerical integration methods
 - Improper integrals (±∞)
 - Real-time function plotting
-- Multi-language UI (English / 中文 / 日本語 / 한국어)
+- Multi-language UI :English / 中文 / 日本語 / 한국어(I don't speak Korean, so all the Korean text was written using a translator. If anyone knows Korean, I would greatly appreciate it if you could proofread it. Thank you very much.)
 
 
 ## Features

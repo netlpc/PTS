@@ -1,8 +1,7 @@
-'''- Fixed parsing issues with implicit multiplication (e.g. `2pi`, `2x`, `2(x+1)` are now supported).
-- Replaced fragile regex parsing with SymPy’s official implicit multiplication parser.
-- Ensured correct handling of standard functions such as `sin`, `cos`, and `exp`.
-- Clarified usage instructions (both `exp(x)` and `e^x` are supported).
-- Added multilingual UI support (Simplified Chinese, Traditional Chinese, Japanese, Korean, Spanish, French, Arabic, and Hindi).
+'''- Improved result display: numerical outputs are rounded to 3 decimal places by default.
+- Preserved exact symbolic results internally and added a "View Exact Result" button.
+- Separated computation precision from UI presentation to improve readability.
+- Introduced a unified result formatting utility for consistent output handling.
 '''
 import tkinter as tk
 import time, re, threading
@@ -36,7 +35,25 @@ SAFE_LOCALS = {
 }
 
 
+
 x_sym = symbols('x')
+
+# ===== Result formatting & exact-value storage =====
+last_raw_result = None
+
+def format_result_for_display(expr, max_decimals=3):
+    """
+    Returns:
+        display_str: formatted string for UI
+        raw_str: exact, unmodified SymPy string
+    """
+    raw_str = sp.sstr(expr)
+    try:
+        val = float(expr.evalf())
+        display_str = f"{val:.{max_decimals}f}"
+        return display_str, raw_str
+    except Exception:
+        return raw_str, raw_str
 
 def format_function_input(func_str: str) -> str:
     return re.sub(r'(?<=\d)([a-zA-Z])', r'*\1', func_str)
@@ -728,6 +745,7 @@ lang_button.bind("<<ComboboxSelected>>", lambda event: change_language(lang_var.
 
 # ============ Tab 1: Basic Integration ============
 def calculate_integral_tab1():
+    global last_raw_result
     try:
         func_str = func_entry_tab1.get().strip()
         shown_func = format_function_input(func_str)
@@ -739,20 +757,21 @@ def calculate_integral_tab1():
             upper = parse_input_to_sympy(upper_text)
             res = integrate(expr, (x_sym, lower, upper))
             fraction_result = nsimplify(res)
-            formatted = sp.sstr(fraction_result).replace('**', '^').replace('pi', 'π')
-            result_label_tab1.config(text=f"Definite Integral: {formatted}")
+            display_str, raw_str = format_result_for_display(fraction_result)
+            last_raw_result = raw_str
+            result_label_tab1.config(text=f"Definite Integral: {display_str}")
             try:
                 l_float = parse_input_to_float(lower_text)
                 u_float = parse_input_to_float(upper_text)
                 plot_embedded(func_str, l_float, u_float)
             except Exception:
                 clear_plot(plot_ax, plot_canvas)
-            update_history(f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {formatted}")
+            update_history(f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {display_str}")
         else:
             ind = integrate(expr, x_sym)
-            formatted = sp.sstr(ind).replace('pi', 'π')
-            result_label_tab1.config(text=f"Indefinite Integral: {formatted} + C")
-            update_history(f"Indefinite: ∫ {shown_func} dx = {formatted} + C")
+            last_raw_result = sp.sstr(ind)
+            result_label_tab1.config(text=f"Indefinite Integral: {last_raw_result} + C")
+            update_history(f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C")
             clear_plot(plot_ax, plot_canvas)
     except ValueError as ve:
         messagebox.showerror("Error", f"{ve}")
@@ -768,8 +787,27 @@ calc_button_tab1 = tk.Button(tab1, text="Calculate Integral", command=calculate_
 calc_button_tab1.grid(row=2, column=0, columnspan=4, pady=10)
 result_label_tab1 = tk.Label(tab1, text="", fg="green", font=("Arial", 12))
 result_label_tab1.grid(row=3, column=0, columnspan=4, pady=10)
+
+
+# Show exact result popup
+def show_exact_result():
+    global last_raw_result
+    if last_raw_result:
+        messagebox.showinfo(
+            "Exact Result",
+            f"Exact value:\n\n{last_raw_result}"
+        )
+
+# Button to view exact result
+view_exact_button_tab1 = tk.Button(
+    tab1,
+    text="View Exact Result",
+    command=show_exact_result
+)
+view_exact_button_tab1.grid(row=4, column=0, columnspan=4, pady=5)
+
 reset_button_tab1 = tk.Button(tab1, text="Reset", bg="lightcoral")
-reset_button_tab1.grid(row=4, column=0, columnspan=4, pady=10)
+reset_button_tab1.grid(row=5, column=0, columnspan=4, pady=10)
 
 def reset_inputs():
     # Tab1
@@ -785,6 +823,8 @@ def reset_inputs():
     history.clear(); history_listbox.delete(0, tk.END)
     # Progress & Plot
     progress["value"] = 0; clear_plot(plot_ax, plot_canvas)
+    global last_raw_result
+    last_raw_result = None
 
 reset_button_tab1.config(command=reset_inputs)
 

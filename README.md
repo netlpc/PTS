@@ -1,9 +1,8 @@
 # Integration Calculator (GUI)
 
-This project is a Python-based graphical integration calculator built with Tkinter.  
-It supports symbolic integration, multiple numerical integration methods, improper integrals, real-time function plotting, and a multilingual user interface.
+A Python-based graphical integration calculator built with **Tkinter**, designed for educational and exploratory use in calculus and numerical analysis.
 
-The application is designed for educational and exploratory use in calculus and numerical analysis.
+The application supports **symbolic and numerical integration**, **improper integrals**, **real-time plotting**, and a **multilingual user interface**, with a strong emphasis on **correct mathematical semantics** and **readable result presentation**.
 
 ---
 
@@ -11,33 +10,64 @@ The application is designed for educational and exploratory use in calculus and 
 
 ### Symbolic Integration
 - Indefinite integrals
-- Definite integrals with exact results
+- Definite integrals with exact (closed-form) results when available
 - Automatic simplification using SymPy
+- Graceful fallback to numerical evaluation when no closed-form exists
 - Supports implicit multiplication (e.g. `2x`, `2pi`, `2(x+1)`)
 
-### Numerical Integration Methods
+### Numerical Integration
+Supported numerical methods include:
 - Rectangle Rule
 - Trapezoidal Rule
 - Simpson’s Rule
 - Simpson 3/8 Rule
 - Romberg Integration
 - Gaussian Quadrature (Gauss–Legendre)
-- Adaptive Simpson (via `scipy.integrate.quad`)
+- Adaptive Simpson (`scipy.integrate.quad`)
 - Monte Carlo Integration (stratified sampling)
+
+For supported methods, **numerical error estimates** are computed and stored internally.
 
 ### Improper Integrals
 - Supports infinite limits using `-inf` and `inf`
-- Symbolic evaluation for convergence
+- Symbolic evaluation for convergence when possible
+- Clear handling of unevaluated or divergent cases
 
-### Graphical User Interface
+---
+
+## Result Display Policy
+
+The calculator follows a unified and transparent result display strategy:
+
+- Short, readable **exact symbolic results** are shown directly (e.g. `π^2 / 2`)
+- Long or complex exact expressions are displayed as **numerical approximations** using the `≈` symbol
+- If no closed-form result exists, numerical computation is used automatically
+- Exact symbolic expressions are always preserved internally and can be accessed via **“View Exact Result”**
+
+This design separates **computation precision** from **UI readability**.
+
+---
+
+## Graphical User Interface
 - Built with Tkinter
 - Embedded Matplotlib plotting
 - Interactive navigation toolbar
-- Progress bar for long numerical computations
+- Progress bar for long-running numerical computations
 - Scrollable calculation history
 
-### Multilingual Interface
-Supported languages include:
+---
+
+## History & Reproducibility
+- History entries are stored as structured records (not plain text)
+- Single-click: refill input fields from history
+- Double-click: refill inputs and automatically recompute
+- Enables reproducible and exploratory workflows
+
+---
+
+## Multilingual Interface
+
+Supported languages:
 - English
 - Simplified Chinese
 - Traditional Chinese

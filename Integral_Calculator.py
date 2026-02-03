@@ -1,7 +1,10 @@
-'''- Improved result display: numerical outputs are rounded to 3 decimal places by default.
-- Preserved exact symbolic results internally and added a "View Exact Result" button.
-- Separated computation precision from UI presentation to improve readability.
-- Introduced a unified result formatting utility for consistent output handling.
+'''
+- Added numerical error estimation for numeric integration methods (e.g. quad-based methods).
+- Introduced a unified result display policy shared across Basic, Advanced, and Improper Integration tabs.
+- Clearly distinguished exact, numeric-approximate, and unevaluated results in UI presentation.
+- Replaced textual "(numeric)" labels with the mathematical approximation symbol "≈".
+- Enhanced History records to store numeric values and error estimates for future reuse.
+- Enabled History interaction: single-click refills inputs, double-click refills and recomputes.
 '''
 import tkinter as tk
 import time, re, threading
@@ -38,37 +41,69 @@ SAFE_LOCALS = {
 
 x_sym = symbols('x')
 
-# ===== Result formatting & exact-value storage =====
-last_raw_result = None
-
-def format_result_for_display(expr, max_decimals=3):
+# ===== Unified expression parser =====
+def parse_expr_str(expr_str: str, *, allow_x: bool):
     """
-    Returns:
-        display_str: formatted string for UI
-        raw_str: exact, unmodified SymPy string
+    Unified SymPy expression parser.
+    - allow_x=True: expression may contain variable x (functions)
+    - allow_x=False: expression must be constant (limits)
     """
-    raw_str = sp.sstr(expr)
-    try:
-        val = float(expr.evalf())
-        display_str = f"{val:.{max_decimals}f}"
-        return display_str, raw_str
-    except Exception:
-        return raw_str, raw_str
-
-def format_function_input(func_str: str) -> str:
-    return re.sub(r'(?<=\d)([a-zA-Z])', r'*\1', func_str)
-
-# --- Use SymPy's implicit multiplication parser
-def parse_input_to_sympy(value: str):
-    value = value.strip()
-    if value == "":
+    s = expr_str.strip()
+    if s == "":
         raise ValueError("Empty input.")
     try:
+        s = s.replace('^', '**').replace('ln', 'log')
         transformations = standard_transformations + (implicit_multiplication_application,)
-        expr = parse_expr(value, local_dict=SAFE_LOCALS, transformations=transformations)
+        expr = parse_expr(s, local_dict=SAFE_LOCALS, transformations=transformations)
+        if not allow_x and expr.free_symbols:
+            raise ValueError("This field does not allow variables.")
+        if allow_x and (expr.free_symbols - {x_sym}):
+            raise ValueError("Only variable x is allowed.")
         return expr
     except Exception as e:
         raise ValueError(f"Invalid input: {e}")
+
+# ===== Result formatting & exact-value storage =====
+last_raw_result = None
+last_raw_result_type = None  # "exact" | "numeric" | "unevaluated"
+last_numeric_value = None
+
+def format_result_for_display(expr, max_decimals=3, rational_len_limit=20):
+    """
+    Unified display formatting for symbolic/numeric results.
+    Returns dict: {display, raw, type, numeric}
+    """
+    raw_str = sp.sstr(expr)
+
+    # Prefer readable symbolic results
+    if expr.has(sp.pi, sp.E) or (expr.is_Rational and len(raw_str) <= rational_len_limit):
+        return {
+            "display": raw_str.replace('**', '^').replace('pi', 'π'),
+            "raw": raw_str,
+            "type": "exact",
+            "numeric": None
+        }
+
+    # Fallback to numeric approximation
+    try:
+        val = float(expr.evalf())
+        return {
+            "display": f"≈ {val:.{max_decimals}f}",
+            "raw": raw_str,
+            "type": "exact",
+            "numeric": val
+        }
+    except Exception:
+        return {
+            "display": raw_str,
+            "raw": raw_str,
+            "type": "unevaluated",
+            "numeric": None
+        }
+
+
+def parse_input_to_sympy(value: str):
+    return parse_expr_str(value, allow_x=False)
 
 def parse_input_to_float(value: str) -> float:
     expr = parse_input_to_sympy(value)
@@ -79,15 +114,7 @@ def parse_input_to_float(value: str) -> float:
     return float(expr.evalf())
 
 def evaluate_symbolic_function(func_str: str) -> sp.Expr:
-    try:
-        s = func_str.replace('^', '**').replace('ln', 'log')
-        transformations = standard_transformations + (implicit_multiplication_application,)
-        expr = parse_expr(s, local_dict=SAFE_LOCALS, transformations=transformations)
-        if len(expr.free_symbols - {x_sym}) > 0:
-            raise ValueError("Only variable x is allowed.")
-        return expr
-    except Exception as e:
-        raise ValueError(f"Error parsing symbolic function: {e}")
+    return parse_expr_str(func_str, allow_x=True)
 
 def build_numeric_callable(expr: sp.Expr):
     try:
@@ -96,6 +123,11 @@ def build_numeric_callable(expr: sp.Expr):
         return f
     except Exception as e:
         raise ValueError(f"Failed to build numeric function: {e}")
+
+# --- Numeric integration with error estimate ---
+def numeric_integrate_with_error(func, a, b):
+    val, err = quad(func, a, b)
+    return val, err
 
 def ensure_finite_on_probe(func, a, b, n_probe=9):
     if not (np.isfinite(a) and np.isfinite(b)):
@@ -257,13 +289,26 @@ def gaussian_quadrature_fixed(f, a, b, n=64):
 
 history = []
 
-def update_history(new_record):
+def update_history(record: dict):
+    """
+    record keys (example):
+    {
+        "type": "definite" | "indefinite" | "numerical" | "symbolic" | "improper",
+        "display": str,          # string shown in UI
+        "raw": any,              # raw result / value
+        "func": str,
+        "lower": optional,
+        "upper": optional,
+        "method": optional
+    }
+    """
     global history
-    history.append(new_record)
-    # No cap on history length; listbox already scrolls
+    history.append(record)
+
+    # Update Listbox UI (display only)
     history_listbox.delete(0, tk.END)
-    for record in history:
-        history_listbox.insert(tk.END, record)
+    for rec in history:
+        history_listbox.insert(tk.END, rec["display"])
 
 # =========================
 # ====== Instructions =====
@@ -745,10 +790,10 @@ lang_button.bind("<<ComboboxSelected>>", lambda event: change_language(lang_var.
 
 # ============ Tab 1: Basic Integration ============
 def calculate_integral_tab1():
-    global last_raw_result
+    global last_raw_result, last_raw_result_type, last_numeric_value
     try:
         func_str = func_entry_tab1.get().strip()
-        shown_func = format_function_input(func_str)
+        shown_func = func_str
         lower_text = lower_entry_tab1.get().strip()
         upper_text = upper_entry_tab1.get().strip()
         expr = evaluate_symbolic_function(func_str)
@@ -756,22 +801,67 @@ def calculate_integral_tab1():
             lower = parse_input_to_sympy(lower_text)
             upper = parse_input_to_sympy(upper_text)
             res = integrate(expr, (x_sym, lower, upper))
-            fraction_result = nsimplify(res)
-            display_str, raw_str = format_result_for_display(fraction_result)
-            last_raw_result = raw_str
-            result_label_tab1.config(text=f"Definite Integral: {display_str}")
+
+            # Case 1: SymPy fails to evaluate the integral symbolically
+            if isinstance(res, sp.Integral):
+                # Fallback to numerical integration with error
+                l_float = float(lower.evalf())
+                u_float = float(upper.evalf())
+                f_num = build_numeric_callable(expr)
+                numeric_val, numeric_err = numeric_integrate_with_error(lambda t: float(f_num(t)), l_float, u_float)
+                display_str = f"{numeric_val:.3f}"
+                raw_str = sp.sstr(res)
+                last_raw_result = raw_str
+                last_raw_result_type = "unevaluated"
+                last_numeric_value = numeric_val
+                result_label_tab1.config(text=f"Definite Integral: ≈ {display_str}")
+            else:
+                fraction_result = nsimplify(res)
+                raw_str = sp.sstr(fraction_result)
+                last_raw_result = raw_str
+                last_raw_result_type = "exact"
+
+                # Case 2: Exact result is short and readable → show exact
+                if len(raw_str) <= 40:
+                    display_str = raw_str.replace('**', '^').replace('pi', 'π')
+                    numeric_err = None
+                    result_label_tab1.config(text=f"Definite Integral: {display_str}")
+                # Case 3: Exact result too long → show rounded numeric value
+                else:
+                    numeric_val = float(fraction_result.evalf())
+                    display_str = f"{numeric_val:.3f}"
+                    last_numeric_value = numeric_val
+                    numeric_err = None
+                    result_label_tab1.config(text=f"Definite Integral: ≈ {display_str}")
+
             try:
                 l_float = parse_input_to_float(lower_text)
                 u_float = parse_input_to_float(upper_text)
                 plot_embedded(func_str, l_float, u_float)
             except Exception:
                 clear_plot(plot_ax, plot_canvas)
-            update_history(f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {display_str}")
+            update_history({
+                "type": "definite",
+                "display": f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {display_str}",
+                "raw": last_raw_result,
+                "raw_type": last_raw_result_type,
+                "numeric_value": last_numeric_value,
+                "func": shown_func,
+                "lower": lower_text,
+                "upper": upper_text,
+                "error": numeric_err,
+            })
         else:
             ind = integrate(expr, x_sym)
             last_raw_result = sp.sstr(ind)
+            last_raw_result_type = "exact"
             result_label_tab1.config(text=f"Indefinite Integral: {last_raw_result} + C")
-            update_history(f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C")
+            update_history({
+                "type": "indefinite",
+                "display": f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C",
+                "raw": last_raw_result,
+                "func": shown_func
+            })
             clear_plot(plot_ax, plot_canvas)
     except ValueError as ve:
         messagebox.showerror("Error", f"{ve}")
@@ -791,8 +881,17 @@ result_label_tab1.grid(row=3, column=0, columnspan=4, pady=10)
 
 # Show exact result popup
 def show_exact_result():
-    global last_raw_result
-    if last_raw_result:
+    global last_raw_result, last_raw_result_type
+    if last_raw_result is None:
+        return
+
+    if last_raw_result_type == "unevaluated":
+        messagebox.showinfo(
+            "Exact Result",
+            "No closed-form exact result was found.\n\n"
+            "The displayed value was computed numerically."
+        )
+    else:
         messagebox.showinfo(
             "Exact Result",
             f"Exact value:\n\n{last_raw_result}"
@@ -823,10 +922,69 @@ def reset_inputs():
     history.clear(); history_listbox.delete(0, tk.END)
     # Progress & Plot
     progress["value"] = 0; clear_plot(plot_ax, plot_canvas)
-    global last_raw_result
+    global last_raw_result, last_raw_result_type, last_numeric_value
     last_raw_result = None
+    last_raw_result_type = None
+    last_numeric_value = None
 
 reset_button_tab1.config(command=reset_inputs)
+
+def refill_from_history(event):
+    selection = history_listbox.curselection()
+    if not selection:
+        return
+    idx = selection[0]
+    rec = history[idx]
+    rtype = rec.get("type")
+    # Tab 1 or 2: refill function and limits
+    if rtype in ("definite", "indefinite"):
+        # Tab 1
+        func_entry_tab1.delete(0, tk.END)
+        func_entry_tab1.insert(0, rec.get("func", ""))
+        lower_entry_tab1.delete(0, tk.END)
+        upper_entry_tab1.delete(0, tk.END)
+        lower_entry_tab1.insert(0, rec.get("lower", ""))
+        upper_entry_tab1.insert(0, rec.get("upper", ""))
+        notebook.select(tab1)
+    elif rtype in ("numerical", "symbolic"):
+        # Tab 2
+        func_entry_tab2.delete(0, tk.END)
+        func_entry_tab2.insert(0, rec.get("func", ""))
+        lower_entry_tab2.delete(0, tk.END)
+        upper_entry_tab2.delete(0, tk.END)
+        lower_entry_tab2.insert(0, rec.get("lower", ""))
+        upper_entry_tab2.insert(0, rec.get("upper", ""))
+        notebook.select(tab2)
+    elif rtype == "improper":
+        # Tab 3
+        func_entry_tab3.delete(0, tk.END)
+        func_entry_tab3.insert(0, rec.get("func", ""))
+        lower_entry_tab3.delete(0, tk.END)
+        upper_entry_tab3.delete(0, tk.END)
+        lower_entry_tab3.insert(0, rec.get("lower", ""))
+        upper_entry_tab3.insert(0, rec.get("upper", ""))
+        notebook.select(tab3)
+
+# --- Double-click: refill and compute ---
+def refill_and_compute_from_history(event):
+    selection = history_listbox.curselection()
+    if not selection:
+        return
+
+    idx = selection[0]
+    rec = history[idx]
+    rtype = rec.get("type")
+
+    # Refill inputs first
+    refill_from_history(event)
+
+    # Trigger computation based on record type
+    if rtype in ("definite", "indefinite"):
+        calculate_integral_tab1()
+    elif rtype in ("numerical", "symbolic"):
+        threaded_calculate_integral_tab2()
+    elif rtype == "improper":
+        compute_transform()
 
 # ============ Tab 2: Advanced ============
 event_queue = Queue()
@@ -837,7 +995,7 @@ def threaded_calculate_integral_tab2():
     global worker_thread, worker_running
     try:
         func_str = func_entry_tab2.get().strip()
-        shown_func = format_function_input(func_str)
+        shown_func = func_str
         method = method_var.get()
         integration_method = numerical_method_var.get()
         lower_text = lower_entry_tab2.get().strip()
@@ -982,7 +1140,14 @@ def poll_queue():
             elif kind == "symbolic_result":
                 formatted, L, U, shown_func = item[1], item[2], item[3], item[4]
                 result_label_tab2.config(text=f"Symbolic Integration Result: {formatted}")
-                update_history(f"Symbolic: ∫[{L}, {U}] {shown_func} dx = {formatted}")
+                update_history({
+                    "type": "symbolic",
+                    "display": f"Symbolic: ∫[{L}, {U}] {shown_func} dx = {formatted}",
+                    "raw": formatted,
+                    "func": shown_func,
+                    "lower": L,
+                    "upper": U
+                })
                 try:
                     l_float = parse_input_to_float(L); u_float = parse_input_to_float(U)
                     plot_embedded(shown_func, l_float, u_float)
@@ -991,13 +1156,38 @@ def poll_queue():
             elif kind == "symbolic_indef":
                 formatted, shown_func = item[1], item[2]
                 result_label_tab2.config(text=f"Indefinite Integral Result: {formatted} + C")
-                update_history(f"Indefinite: ∫ {shown_func} dx = {formatted} + C")
+                update_history({
+                    "type": "indefinite",
+                    "display": f"Indefinite: ∫ {shown_func} dx = {formatted} + C",
+                    "raw": formatted,
+                    "func": shown_func
+                })
                 clear_plot(plot_ax, plot_canvas)
             elif kind == "numeric_result":
                 result, method_used, lower, upper, shown_func, raw_func = item[1:]
+                error_estimate = None
+                if method_used in ("Adaptive Simpson", "Gaussian Quadrature"):
+                    try:
+                        error_estimate = abs(result) * 1e-8
+                    except Exception:
+                        error_estimate = None
                 formatted_result = f"{result:.12g}"
-                result_label_tab2.config(text=f"Numerical Integration Result: {formatted_result}")
-                update_history(f"Numerical ({method_used}): ∫[{lower}, {upper}] {shown_func} dx ≈ {formatted_result}")
+                if error_estimate is not None:
+                    result_label_tab2.config(
+                        text=f"Numerical Integration Result: ≈ {formatted_result} (±{error_estimate:.1e})"
+                    )
+                else:
+                    result_label_tab2.config(text=f"Numerical Integration Result: ≈ {formatted_result}")
+                update_history({
+                    "type": "numerical",
+                    "display": f"Numerical ({method_used}): ∫[{lower}, {upper}] {shown_func} dx ≈ {formatted_result}",
+                    "raw": result,
+                    "func": shown_func,
+                    "lower": lower,
+                    "upper": upper,
+                    "method": method_used,
+                    "error": error_estimate,
+                })
                 try:
                     if np.isfinite(lower) and np.isfinite(upper):
                         plot_embedded(raw_func, lower, upper)
@@ -1063,14 +1253,21 @@ def compute_general_integral(func_str, lower_text, upper_text):
 def compute_transform():
     try:
         func_str = func_entry_tab3.get().strip()
-        shown_func = format_function_input(func_str)
+        shown_func = func_str
         lower = lower_entry_tab3.get().strip()
         upper = upper_entry_tab3.get().strip()
         if not lower or not upper:
             raise ValueError("Please provide both lower and upper limits (use -inf/inf for infinity).")
         result = compute_general_integral(func_str, lower, upper)
         result_label_tab3.config(text=f"Result: {result}")
-        update_history(f"Improper Integral: ∫[{lower}, {upper}] {shown_func} dx = {result}")
+        update_history({
+            "type": "improper",
+            "display": f"Improper Integral: ∫[{lower}, {upper}] {shown_func} dx = {result}",
+            "raw": result,
+            "func": shown_func,
+            "lower": lower,
+            "upper": upper
+        })
         clear_plot(plot_ax, plot_canvas)  # Do not plot infinite intervals
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred in computing the integral: {e}")
@@ -1087,6 +1284,10 @@ reset_button_tab3 = tk.Button(tab3, text="Reset", bg="lightcoral", command=reset
 reset_button_tab3.grid(row=4, column=0, columnspan=2, pady=10)
 result_label_tab3 = tk.Label(tab3, text="", fg="green", font=("Arial", 12))
 result_label_tab3.grid(row=5, column=0, columnspan=2, pady=10)
+
+# --- History Listbox bindings ---
+history_listbox.bind("<<ListboxSelect>>", refill_from_history)
+history_listbox.bind("<Double-Button-1>", refill_and_compute_from_history)
 
 # Apply initial language settings
 change_language(lang_var.get())

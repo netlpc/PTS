@@ -1,10 +1,9 @@
 '''
-- Introduced method-aware progress bar behavior for numerical integration.
-- Added indeterminate (animated) progress mode for fast numerical methods.
-- Preserved determinate (percentage-based) progress for long-running methods.
-- Ensured progress bar visibility by reserving a fixed layout slot in the UI.
-- Enforced a minimum visible duration for fast-method progress animations.
-- Prevented UI layout jumping caused by dynamic widget packing.
+- Added LaTeX live preview on Tab 1 using Matplotlib mathtext for real-time formula rendering.
+- Bound Tab 1 inputs (function and limits) to update the rendered expression on every key press.
+- Fixed Tab 1 definite-integral fallback: if SymPy returns an unevaluated Integral(...), compute a numeric approximation (3 decimals) instead.
+- Fixed Tab 1 indefinite-integral handling: if no closed-form antiderivative is found, show a clear “no closed-form” message instead of displaying Integral(...).
+- Improved result classification by detecting unevaluated Integral(...) early in the unified formatter.
 '''
 
 
@@ -92,6 +91,16 @@ def format_result_for_display(expr, max_decimals=3, rational_len_limit=20):
     Returns dict: {display, raw, type, numeric}
     """
     raw_str = sp.sstr(expr)
+
+    # If SymPy couldn't find a closed-form, it often returns an unevaluated Integral(...)
+    # Treat that as "unevaluated" so the caller can fallback to numeric.
+    if isinstance(expr, sp.Integral) or expr.has(sp.Integral):
+        return {
+            "display": raw_str,
+            "raw": raw_str,
+            "type": "unevaluated",
+            "numeric": None
+        }
 
     # Prefer readable symbolic results
     if expr.has(sp.pi, sp.E) or (expr.is_Rational and len(raw_str) <= rational_len_limit):
@@ -877,6 +886,7 @@ def calculate_integral_tab1():
                 last_numeric_value = numeric_val
                 display_str = f"≈ {numeric_val:.3f}"
             else:
+                # For readable symbolic results, show them directly
                 result_label_tab1.config(text=f"Definite Integral: {info['display']}")
 
             try:
@@ -898,15 +908,35 @@ def calculate_integral_tab1():
             })
         else:
             ind = integrate(expr, x_sym)
-            last_raw_result = sp.sstr(ind)
-            last_raw_result_type = "exact"
-            result_label_tab1.config(text=f"Indefinite Integral: {last_raw_result} + C")
-            update_history({
-                "type": "indefinite",
-                "display": f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C",
-                "raw": last_raw_result,
-                "func": shown_func
-            })
+
+            # If SymPy fails to find a closed-form antiderivative, it returns Integral(...)
+            if isinstance(ind, sp.Integral) or ind.has(sp.Integral):
+                last_raw_result = sp.sstr(ind)
+                last_raw_result_type = "unevaluated"
+                last_numeric_value = None
+                result_label_tab1.config(text="Indefinite Integral: No closed-form exact result was found.")
+                update_history({
+                    "type": "indefinite",
+                    "display": f"Indefinite: ∫ {shown_func} dx = (no closed-form)",
+                    "raw": last_raw_result,
+                    "raw_type": last_raw_result_type,
+                    "numeric_value": None,
+                    "func": shown_func
+                })
+            else:
+                last_raw_result = sp.sstr(ind)
+                last_raw_result_type = "exact"
+                last_numeric_value = None
+                result_label_tab1.config(text=f"Indefinite Integral: {last_raw_result} + C")
+                update_history({
+                    "type": "indefinite",
+                    "display": f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C",
+                    "raw": last_raw_result,
+                    "raw_type": last_raw_result_type,
+                    "numeric_value": None,
+                    "func": shown_func
+                })
+
             clear_plot(plot_ax, plot_canvas)
     except ValueError as ve:
         messagebox.showerror("Error", f"{ve}")
@@ -918,10 +948,31 @@ upper_entry_tab1 = tk.Entry(tab1, width=10, justify="center"); upper_entry_tab1.
 lower_entry_tab1 = tk.Entry(tab1, width=10, justify="center"); lower_entry_tab1.grid(row=1, column=1, padx=5, pady=2)
 func_entry_tab1  = tk.Entry(tab1, width=25); func_entry_tab1.grid(row=0, column=2, rowspan=2, padx=5, pady=5)
 tk.Label(tab1, text="dx", font=("Arial", 20)).grid(row=0, column=3, rowspan=2, padx=5)
+
+# --- LaTeX Live Preview (Tab 1) ---
+latex_preview_frame_tab1 = ttk.Frame(tab1)
+latex_preview_frame_tab1.grid(row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=(6, 2))
+latex_preview_frame_tab1.columnconfigure(0, weight=1)
+
+latex_fig_tab1 = plt.Figure(figsize=(6.2, 1.4), dpi=100)
+latex_ax_tab1 = latex_fig_tab1.add_subplot(111)
+latex_ax_tab1.axis("off")
+latex_text_tab1 = latex_ax_tab1.text(
+    0.5, 0.5, "",
+    ha="center", va="center",
+    fontsize=18,
+    transform=latex_ax_tab1.transAxes
+)
+
+latex_canvas_tab1 = FigureCanvasTkAgg(latex_fig_tab1, master=latex_preview_frame_tab1)
+latex_canvas_widget_tab1 = latex_canvas_tab1.get_tk_widget()
+latex_canvas_widget_tab1.pack(fill=tk.BOTH, expand=True)
+
 calc_button_tab1 = tk.Button(tab1, text="Calculate Integral", command=calculate_integral_tab1, bg="lightblue")
-calc_button_tab1.grid(row=2, column=0, columnspan=4, pady=10)
+calc_button_tab1.grid(row=3, column=0, columnspan=4, pady=10)
+
 result_label_tab1 = tk.Label(tab1, text="", fg="green", font=("Arial", 12))
-result_label_tab1.grid(row=3, column=0, columnspan=4, pady=10)
+result_label_tab1.grid(row=4, column=0, columnspan=4, pady=10)
 
 
 # Show exact result popup
@@ -948,10 +999,57 @@ view_exact_button_tab1 = tk.Button(
     text="View Exact Result",
     command=show_exact_result
 )
-view_exact_button_tab1.grid(row=4, column=0, columnspan=4, pady=5)
+view_exact_button_tab1.grid(row=5, column=0, columnspan=4, pady=5)
 
 reset_button_tab1 = tk.Button(tab1, text="Reset", bg="lightcoral")
-reset_button_tab1.grid(row=5, column=0, columnspan=4, pady=10)
+reset_button_tab1.grid(row=6, column=0, columnspan=4, pady=10)
+
+# --- Tab 1: LaTeX Live Preview updater ---
+def update_latex_preview_tab1(event=None):
+    """
+    Live LaTeX preview for Tab 1 input.
+    Renders either:
+      - \int_{lower}^{upper} f(x)\,dx   (when both limits present)
+      - f(x)                              (otherwise)
+    """
+    func_str = func_entry_tab1.get().strip()
+    lower_text = lower_entry_tab1.get().strip()
+    upper_text = upper_entry_tab1.get().strip()
+
+    if not func_str:
+        latex_text_tab1.set_text("")
+        latex_canvas_tab1.draw_idle()
+        return
+
+    try:
+        fexpr = evaluate_symbolic_function(func_str)
+        f_ltx = sp.latex(fexpr)
+
+        # Build integral latex if both bounds are present
+        if lower_text and upper_text:
+            L = parse_input_to_sympy(lower_text)
+            U = parse_input_to_sympy(upper_text)
+            L_ltx = sp.latex(L)
+            U_ltx = sp.latex(U)
+            full = rf"\int_{{{L_ltx}}}^{{{U_ltx}}} {f_ltx}\, dx"
+        else:
+            full = f_ltx
+
+        # Use mathtext (no external LaTeX required)
+        latex_text_tab1.set_text(rf"${full}$")
+    except Exception:
+        # On parse errors, keep preview empty (avoid confusing broken renders)
+        latex_text_tab1.set_text("")
+
+    latex_canvas_tab1.draw_idle()
+
+# Bind live preview to Tab 1 entries
+func_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
+lower_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
+upper_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
+
+# Initialize preview once on startup
+update_latex_preview_tab1()
 
 def reset_inputs():
     # Tab1

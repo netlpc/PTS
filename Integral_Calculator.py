@@ -1,11 +1,29 @@
 '''
-- Added numerical error estimation for numeric integration methods (e.g. quad-based methods).
-- Introduced a unified result display policy shared across Basic, Advanced, and Improper Integration tabs.
-- Clearly distinguished exact, numeric-approximate, and unevaluated results in UI presentation.
-- Replaced textual "(numeric)" labels with the mathematical approximation symbol "≈".
-- Enhanced History records to store numeric values and error estimates for future reuse.
-- Enabled History interaction: single-click refills inputs, double-click refills and recomputes.
+- Introduced method-aware progress bar behavior for numerical integration.
+- Added indeterminate (animated) progress mode for fast numerical methods.
+- Preserved determinate (percentage-based) progress for long-running methods.
+- Ensured progress bar visibility by reserving a fixed layout slot in the UI.
+- Enforced a minimum visible duration for fast-method progress animations.
+- Prevented UI layout jumping caused by dynamic widget packing.
 '''
+
+
+
+# ===== Fast/Slow Numerical Method Groups (Tab 2 Progress Bar) =====
+FAST_METHODS = {
+    "Trapezoidal",
+    "Simpson",
+    "Gaussian Quadrature",
+}
+
+SLOW_METHODS = {
+    "Monte Carlo",
+    "Romberg",
+    "Simpson 3/8",
+    "Adaptive Simpson",
+    "Rectangle",
+}
+
 import tkinter as tk
 import time, re, threading
 from tkinter import ttk, messagebox
@@ -502,9 +520,49 @@ notebook.add(tab1, text="Basic Integration")
 notebook.add(tab2, text="Advanced Integration")
 notebook.add(tab3, text="Improper Integral (Infinite)")
 
-# Progress bar (below notebook)
-progress = ttk.Progressbar(left_panel, orient=tk.HORIZONTAL, mode='determinate')
-progress.pack(fill=tk.X, pady=6)
+# Progress bar container (reserve vertical space)
+progress_container = ttk.Frame(left_panel, height=20)
+progress_container.pack(fill=tk.X, pady=6)
+progress_container.pack_propagate(False)
+
+progress = ttk.Progressbar(progress_container, orient=tk.HORIZONTAL, mode='determinate')
+
+# --- Progress bar helpers for Tab 2 ---
+# Track when indeterminate progress bar was shown
+progress_start_time = None
+
+def show_progress_indeterminate():
+    global progress_start_time
+    progress_start_time = time.time()
+    progress.stop()
+    progress.config(mode="indeterminate")
+    progress.pack(fill=tk.X)
+    progress.start(10)
+
+def show_progress_determinate(maximum=100):
+    progress.stop()
+    progress.config(mode="determinate", maximum=maximum)
+    progress["value"] = 0
+    progress.pack(fill=tk.X)
+
+def hide_progress(min_visible=0.3):
+    global progress_start_time
+
+    if progress_start_time is None:
+        progress.stop()
+        progress.pack_forget()
+        return
+
+    elapsed = time.time() - progress_start_time
+    if elapsed >= min_visible:
+        progress.stop()
+        progress.pack_forget()
+    else:
+        delay_ms = int((min_visible - elapsed) * 1000)
+        root.after(
+            delay_ms,
+            lambda: (progress.stop(), progress.pack_forget())
+        )
 
 # History panel (right side, scrollable)
 history_frame = ttk.Frame(right_panel)
@@ -802,37 +860,24 @@ def calculate_integral_tab1():
             upper = parse_input_to_sympy(upper_text)
             res = integrate(expr, (x_sym, lower, upper))
 
-            # Case 1: SymPy fails to evaluate the integral symbolically
-            if isinstance(res, sp.Integral):
-                # Fallback to numerical integration with error
+            info = format_result_for_display(res)
+            last_raw_result = info["raw"]
+            last_raw_result_type = info["type"]
+            last_numeric_value = info["numeric"]
+
+            numeric_err = None
+            display_str = info["display"]
+            # If unevaluated, fallback to numeric with error
+            if info["type"] == "unevaluated":
                 l_float = float(lower.evalf())
                 u_float = float(upper.evalf())
                 f_num = build_numeric_callable(expr)
                 numeric_val, numeric_err = numeric_integrate_with_error(lambda t: float(f_num(t)), l_float, u_float)
-                display_str = f"{numeric_val:.3f}"
-                raw_str = sp.sstr(res)
-                last_raw_result = raw_str
-                last_raw_result_type = "unevaluated"
+                result_label_tab1.config(text=f"Definite Integral: ≈ {numeric_val:.3f}")
                 last_numeric_value = numeric_val
-                result_label_tab1.config(text=f"Definite Integral: ≈ {display_str}")
+                display_str = f"≈ {numeric_val:.3f}"
             else:
-                fraction_result = nsimplify(res)
-                raw_str = sp.sstr(fraction_result)
-                last_raw_result = raw_str
-                last_raw_result_type = "exact"
-
-                # Case 2: Exact result is short and readable → show exact
-                if len(raw_str) <= 40:
-                    display_str = raw_str.replace('**', '^').replace('pi', 'π')
-                    numeric_err = None
-                    result_label_tab1.config(text=f"Definite Integral: {display_str}")
-                # Case 3: Exact result too long → show rounded numeric value
-                else:
-                    numeric_val = float(fraction_result.evalf())
-                    display_str = f"{numeric_val:.3f}"
-                    last_numeric_value = numeric_val
-                    numeric_err = None
-                    result_label_tab1.config(text=f"Definite Integral: ≈ {display_str}")
+                result_label_tab1.config(text=f"Definite Integral: {info['display']}")
 
             try:
                 l_float = parse_input_to_float(lower_text)
@@ -1014,7 +1059,12 @@ def threaded_calculate_integral_tab2():
             if delta <= 0:
                 raise ValueError("Step size (delta) must be positive.")
 
-        progress["value"] = 0; progress["maximum"] = 100
+        # Progress bar behavior based on method speed
+        if integration_method in FAST_METHODS:
+            show_progress_indeterminate()
+        else:
+            show_progress_determinate()
+
         if worker_running:
             messagebox.showinfo("Info", "A computation is already running.")
             return
@@ -1153,6 +1203,7 @@ def poll_queue():
                     plot_embedded(shown_func, l_float, u_float)
                 except Exception:
                     clear_plot(plot_ax, plot_canvas)
+                hide_progress()
             elif kind == "symbolic_indef":
                 formatted, shown_func = item[1], item[2]
                 result_label_tab2.config(text=f"Indefinite Integral Result: {formatted} + C")
@@ -1163,6 +1214,7 @@ def poll_queue():
                     "func": shown_func
                 })
                 clear_plot(plot_ax, plot_canvas)
+                hide_progress()
             elif kind == "numeric_result":
                 result, method_used, lower, upper, shown_func, raw_func = item[1:]
                 error_estimate = None
@@ -1171,16 +1223,14 @@ def poll_queue():
                         error_estimate = abs(result) * 1e-8
                     except Exception:
                         error_estimate = None
-                formatted_result = f"{result:.12g}"
+                formatted = format_result_for_display(sp.Float(result))
+                disp = formatted["display"]
                 if error_estimate is not None:
-                    result_label_tab2.config(
-                        text=f"Numerical Integration Result: ≈ {formatted_result} (±{error_estimate:.1e})"
-                    )
-                else:
-                    result_label_tab2.config(text=f"Numerical Integration Result: ≈ {formatted_result}")
+                    disp = f"{disp} (±{error_estimate:.1e})"
+                result_label_tab2.config(text=f"Numerical Integration Result: {disp}")
                 update_history({
                     "type": "numerical",
-                    "display": f"Numerical ({method_used}): ∫[{lower}, {upper}] {shown_func} dx ≈ {formatted_result}",
+                    "display": f"Numerical ({method_used}): ∫[{lower}, {upper}] {shown_func} dx {disp}",
                     "raw": result,
                     "func": shown_func,
                     "lower": lower,
@@ -1195,8 +1245,10 @@ def poll_queue():
                         clear_plot(plot_ax, plot_canvas)
                 except Exception:
                     clear_plot(plot_ax, plot_canvas)
+                hide_progress()
             elif kind == "error":
                 messagebox.showerror("Error", item[1])
+                hide_progress()
             else:
                 pass
     except Exception:
@@ -1243,12 +1295,14 @@ result_label_tab2.grid(row=8, column=0, columnspan=2, pady=10)
 def compute_general_integral(func_str, lower_text, upper_text):
     f = evaluate_symbolic_function(func_str)
     L = -sp.oo if lower_text == '-inf' else parse_input_to_sympy(lower_text)
-    U = sp.oo  if upper_text ==  'inf' else parse_input_to_sympy(upper_text)
-    try:
-        res = integrate(f, (x_sym, L, U))
-        return pretty(res)
-    except Exception as e:
-        return f"Error: {e}"
+    U =  sp.oo if upper_text ==  'inf' else parse_input_to_sympy(upper_text)
+
+    res = integrate(f, (x_sym, L, U))
+    if isinstance(res, sp.Integral):
+        return {"type": "unevaluated", "expr": res}
+    if res in (sp.oo, -sp.oo):
+        return {"type": "divergent", "expr": res}
+    return {"type": "exact", "expr": res}
 
 def compute_transform():
     try:
@@ -1258,12 +1312,29 @@ def compute_transform():
         upper = upper_entry_tab3.get().strip()
         if not lower or not upper:
             raise ValueError("Please provide both lower and upper limits (use -inf/inf for infinity).")
-        result = compute_general_integral(func_str, lower, upper)
-        result_label_tab3.config(text=f"Result: {result}")
+        out = compute_general_integral(func_str, lower, upper)
+
+        if out["type"] == "exact":
+            info = format_result_for_display(out["expr"])
+            result_label_tab3.config(text=f"Result: {info['display']}")
+        elif out["type"] == "divergent":
+            result_label_tab3.config(text="Result: Divergent integral")
+        else:
+            result_label_tab3.config(text="Result: No closed-form expression found")
+
+        # For history, store the raw expr or divergence/unevaluated
+        display_str = None
+        if out["type"] == "exact":
+            info = format_result_for_display(out["expr"])
+            display_str = info["display"]
+        elif out["type"] == "divergent":
+            display_str = "Divergent"
+        else:
+            display_str = "No closed-form"
         update_history({
             "type": "improper",
-            "display": f"Improper Integral: ∫[{lower}, {upper}] {shown_func} dx = {result}",
-            "raw": result,
+            "display": f"Improper Integral: ∫[{lower}, {upper}] {shown_func} dx = {display_str}",
+            "raw": out.get("expr"),
             "func": shown_func,
             "lower": lower,
             "upper": upper

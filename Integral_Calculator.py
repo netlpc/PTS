@@ -1,9 +1,9 @@
 '''
-- Added LaTeX live preview on Tab 1 using Matplotlib mathtext for real-time formula rendering.
-- Bound Tab 1 inputs (function and limits) to update the rendered expression on every key press.
-- Fixed Tab 1 definite-integral fallback: if SymPy returns an unevaluated Integral(...), compute a numeric approximation (3 decimals) instead.
-- Fixed Tab 1 indefinite-integral handling: if no closed-form antiderivative is found, show a clear “no closed-form” message instead of displaying Integral(...).
-- Improved result classification by detecting unevaluated Integral(...) early in the unified formatter.
+- Improved format_result_for_display to intelligently show exact values when they're short enough
+- Simplified calculate_integral_tab1 logic by trusting format_result_for_display
+- Enhanced View Exact Result button to show both symbolic and numeric forms
+- Added keyboard shortcuts (Enter key) for calculation
+- Improved LaTeX preview error handling
 '''
 
 
@@ -85,15 +85,19 @@ last_raw_result = None
 last_raw_result_type = None  # "exact" | "numeric" | "unevaluated"
 last_numeric_value = None
 
-def format_result_for_display(expr, max_decimals=3, rational_len_limit=20):
+def format_result_for_display(expr, max_decimals=3, symbolic_len_limit=50):
     """
-    Unified display formatting for symbolic/numeric results.
+    Improved unified display formatting for symbolic/numeric results.
     Returns dict: {display, raw, type, numeric}
+    
+    Logic:
+    1. If unevaluated Integral -> return as "unevaluated"
+    2. If symbolic expression is short enough (< symbolic_len_limit) and not overly complex -> show exact
+    3. Otherwise -> show numeric approximation
     """
     raw_str = sp.sstr(expr)
 
     # If SymPy couldn't find a closed-form, it often returns an unevaluated Integral(...)
-    # Treat that as "unevaluated" so the caller can fallback to numeric.
     if isinstance(expr, sp.Integral) or expr.has(sp.Integral):
         return {
             "display": raw_str,
@@ -102,16 +106,18 @@ def format_result_for_display(expr, max_decimals=3, rational_len_limit=20):
             "numeric": None
         }
 
-    # Prefer readable symbolic results
-    if expr.has(sp.pi, sp.E) or (expr.is_Rational and len(raw_str) <= rational_len_limit):
-        return {
-            "display": raw_str.replace('**', '^').replace('pi', 'π'),
-            "raw": raw_str,
-            "type": "exact",
-            "numeric": None
-        }
-
-    # Fallback to numeric approximation
+    # Check if expression is short enough to display symbolically
+    if len(raw_str) <= symbolic_len_limit:
+        # Avoid displaying overly complex nested expressions
+        if "exp(exp" not in raw_str:
+            return {
+                "display": raw_str.replace('**', '^').replace('pi', 'π'),
+                "raw": raw_str,
+                "type": "exact",
+                "numeric": None
+            }
+    
+    # Fallback to numeric approximation for long/complex expressions
     try:
         val = float(expr.evalf())
         return {
@@ -748,18 +754,18 @@ def change_language(lang):
         result_label_tab2.config(text="")
         result_label_tab3.config(text="")
     elif lang == "Français":
-        root.title("Calculateur d’intégrales")
+        root.title("Calculateur d'intégrales")
         notebook.tab(0, text="Intégration de base")
         notebook.tab(1, text="Intégration avancée")
         notebook.tab(2, text="Intégrale impropre (infinie)")
-        usage_button.config(text="Instructions d’utilisation")
-        calc_button_tab1.config(text="Calculer l’intégrale")
+        usage_button.config(text="Instructions d'utilisation")
+        calc_button_tab1.config(text="Calculer l'intégrale")
         reset_button_tab1.config(text="Réinitialiser")
-        calc_button_tab2.config(text="Calculer l’intégrale")
+        calc_button_tab2.config(text="Calculer l'intégrale")
         reset_button_tab2.config(text="Réinitialiser")
-        calc_button_tab3.config(text="Calculer l’intégrale")
+        calc_button_tab3.config(text="Calculer l'intégrale")
         reset_button_tab3.config(text="Réinitialiser")
-        method_label.config(text="Méthode d’intégration :")
+        method_label.config(text="Méthode d'intégration :")
         lower_label_tab2.config(text="Borne inférieure :")
         upper_label_tab2.config(text="Borne supérieure :")
         delta_label_tab2.config(text="Pas (intégration numérique) :")
@@ -836,7 +842,7 @@ def show_usage_instructions():
         "日本語": "使用説明",
         "한국어": "사용 안내",
         "Español": "Instrucciones de uso",
-        "Français": "Instructions d’utilisation",
+        "Français": "Instructions d'utilisation",
         "العربية": "إرشادات الاستخدام",
         "हिन्दी": "उपयोग निर्देश"
     }
@@ -864,18 +870,21 @@ def calculate_integral_tab1():
         lower_text = lower_entry_tab1.get().strip()
         upper_text = upper_entry_tab1.get().strip()
         expr = evaluate_symbolic_function(func_str)
+        
         if lower_text and upper_text:
             lower = parse_input_to_sympy(lower_text)
             upper = parse_input_to_sympy(upper_text)
             res = integrate(expr, (x_sym, lower, upper))
 
-            info = format_result_for_display(res)
+            # Use improved format_result_for_display with symbolic_len_limit=50
+            info = format_result_for_display(res, symbolic_len_limit=50)
             last_raw_result = info["raw"]
             last_raw_result_type = info["type"]
             last_numeric_value = info["numeric"]
 
             numeric_err = None
             display_str = info["display"]
+            
             # If unevaluated, fallback to numeric with error
             if info["type"] == "unevaluated":
                 l_float = float(lower.evalf())
@@ -886,8 +895,16 @@ def calculate_integral_tab1():
                 last_numeric_value = numeric_val
                 display_str = f"≈ {numeric_val:.3f}"
             else:
-                # For readable symbolic results, show them directly
+                # Trust format_result_for_display's judgment
                 result_label_tab1.config(text=f"Definite Integral: {info['display']}")
+                display_str = info['display']
+                
+                # If no numeric value yet, calculate one for "View Exact Result"
+                if last_numeric_value is None:
+                    try:
+                        last_numeric_value = float(res.evalf())
+                    except:
+                        pass
 
             try:
                 l_float = parse_input_to_float(lower_text)
@@ -895,6 +912,7 @@ def calculate_integral_tab1():
                 plot_embedded(func_str, l_float, u_float)
             except Exception:
                 clear_plot(plot_ax, plot_canvas)
+                
             update_history({
                 "type": "definite",
                 "display": f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {display_str}",
@@ -907,9 +925,9 @@ def calculate_integral_tab1():
                 "error": numeric_err,
             })
         else:
+            # Indefinite integral
             ind = integrate(expr, x_sym)
 
-            # If SymPy fails to find a closed-form antiderivative, it returns Integral(...)
             if isinstance(ind, sp.Integral) or ind.has(sp.Integral):
                 last_raw_result = sp.sstr(ind)
                 last_raw_result_type = "unevaluated"
@@ -943,6 +961,7 @@ def calculate_integral_tab1():
     except Exception as e:
         messagebox.showerror("Error", f"Error in integration: {e}")
 
+
 tk.Label(tab1, text="∫", font=("Arial", 60)).grid(row=0, column=0, rowspan=2, padx=10, pady=5)
 upper_entry_tab1 = tk.Entry(tab1, width=10, justify="center"); upper_entry_tab1.grid(row=0, column=1, padx=5, pady=2)
 lower_entry_tab1 = tk.Entry(tab1, width=10, justify="center"); lower_entry_tab1.grid(row=1, column=1, padx=5, pady=2)
@@ -975,23 +994,25 @@ result_label_tab1 = tk.Label(tab1, text="", fg="green", font=("Arial", 12))
 result_label_tab1.grid(row=4, column=0, columnspan=4, pady=10)
 
 
-# Show exact result popup
+# Show exact result popup - IMPROVED VERSION
 def show_exact_result():
-    global last_raw_result, last_raw_result_type
+    global last_raw_result, last_raw_result_type, last_numeric_value
     if last_raw_result is None:
+        messagebox.showinfo("Exact Result", "No result to display.")
         return
 
     if last_raw_result_type == "unevaluated":
-        messagebox.showinfo(
-            "Exact Result",
-            "No closed-form exact result was found.\n\n"
-            "The displayed value was computed numerically."
-        )
+        msg = "No closed-form exact result was found."
+        if last_numeric_value is not None:
+            msg += f"\n\nNumeric approximation:\n≈ {last_numeric_value:.10f}"
+        else:
+            msg += "\n\nNo numeric value available."
+        messagebox.showinfo("Exact Result", msg)
     else:
-        messagebox.showinfo(
-            "Exact Result",
-            f"Exact value:\n\n{last_raw_result}"
-        )
+        msg = f"Exact symbolic form:\n\n{last_raw_result}"
+        if last_numeric_value is not None:
+            msg += f"\n\nNumeric value:\n≈ {last_numeric_value:.10f}"
+        messagebox.showinfo("Exact Result", msg)
 
 # Button to view exact result
 view_exact_button_tab1 = tk.Button(
@@ -1004,13 +1025,10 @@ view_exact_button_tab1.grid(row=5, column=0, columnspan=4, pady=5)
 reset_button_tab1 = tk.Button(tab1, text="Reset", bg="lightcoral")
 reset_button_tab1.grid(row=6, column=0, columnspan=4, pady=10)
 
-# --- Tab 1: LaTeX Live Preview updater ---
+# --- Tab 1: LaTeX Live Preview updater - IMPROVED VERSION ---
 def update_latex_preview_tab1(event=None):
     """
-    Live LaTeX preview for Tab 1 input.
-    Renders either:
-      - \int_{lower}^{upper} f(x)\,dx   (when both limits present)
-      - f(x)                              (otherwise)
+    Live LaTeX preview for Tab 1 input with improved error handling.
     """
     func_str = func_entry_tab1.get().strip()
     lower_text = lower_entry_tab1.get().strip()
@@ -1037,9 +1055,9 @@ def update_latex_preview_tab1(event=None):
 
         # Use mathtext (no external LaTeX required)
         latex_text_tab1.set_text(rf"${full}$")
-    except Exception:
-        # On parse errors, keep preview empty (avoid confusing broken renders)
-        latex_text_tab1.set_text("")
+    except Exception as e:
+        # Show error indicator instead of clearing
+        latex_text_tab1.set_text(r"$\text{(invalid input)}$")
 
     latex_canvas_tab1.draw_idle()
 
@@ -1047,6 +1065,11 @@ def update_latex_preview_tab1(event=None):
 func_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
 lower_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
 upper_entry_tab1.bind("<KeyRelease>", update_latex_preview_tab1)
+
+# NEW: Add Enter key shortcuts for Tab 1
+func_entry_tab1.bind("<Return>", lambda e: calculate_integral_tab1())
+lower_entry_tab1.bind("<Return>", lambda e: calculate_integral_tab1())
+upper_entry_tab1.bind("<Return>", lambda e: calculate_integral_tab1())
 
 # Initialize preview once on startup
 update_latex_preview_tab1()
@@ -1069,6 +1092,9 @@ def reset_inputs():
     last_raw_result = None
     last_raw_result_type = None
     last_numeric_value = None
+    # Clear LaTeX preview
+    latex_text_tab1.set_text("")
+    latex_canvas_tab1.draw_idle()
 
 reset_button_tab1.config(command=reset_inputs)
 
@@ -1214,7 +1240,6 @@ def threaded_calculate_integral_tab2():
                             )
                             part_estimates.append(est_k)
                             event_queue.put(("progress", int((k+1)*100/chunks)))
-                        # 关键：对分块估计取平均，而不是求和
                         result = float(np.mean(part_estimates))
 
                     elif integration_method == "Rectangle":
@@ -1248,7 +1273,6 @@ def threaded_calculate_integral_tab2():
                         result = romberg_custom(f_num, lower, upper, max_level=8, tol=1e-8); event_queue.put(("progress", 100))
 
                     elif integration_method == "Gaussian Quadrature":
-                        # 使用自实现 Gauss–Legendre（不依赖弃用 API）
                         result = gaussian_quadrature_fixed(f_num, lower, upper, n=64)
                         event_queue.put(("progress", 100))
 
@@ -1257,7 +1281,6 @@ def threaded_calculate_integral_tab2():
                         result = composite_simpson_38(lambda t: f_num(t), lower, upper, n_intervals=n_int); event_queue.put(("progress", 100))
 
                     elif integration_method == "Adaptive Simpson":
-                        # 用 quad，但确保标量化返回，避免未来 numpy 行为变化
                         def f_scalar(t):
                             v = np.asarray(f_num(t), dtype=float).reshape(-1)
                             return float(v[0])
@@ -1389,6 +1412,12 @@ reset_button_tab2.grid(row=7, column=0, columnspan=2, pady=10)
 result_label_tab2 = tk.Label(tab2, text="", fg="green", font=("Arial", 12))
 result_label_tab2.grid(row=8, column=0, columnspan=2, pady=10)
 
+# NEW: Add Enter key shortcuts for Tab 2
+func_entry_tab2.bind("<Return>", lambda e: threaded_calculate_integral_tab2())
+lower_entry_tab2.bind("<Return>", lambda e: threaded_calculate_integral_tab2())
+upper_entry_tab2.bind("<Return>", lambda e: threaded_calculate_integral_tab2())
+delta_entry_tab2.bind("<Return>", lambda e: threaded_calculate_integral_tab2())
+
 # ============ Tab 3: Improper (Infinite) ============
 def compute_general_integral(func_str, lower_text, upper_text):
     f = evaluate_symbolic_function(func_str)
@@ -1453,6 +1482,11 @@ reset_button_tab3 = tk.Button(tab3, text="Reset", bg="lightcoral", command=reset
 reset_button_tab3.grid(row=4, column=0, columnspan=2, pady=10)
 result_label_tab3 = tk.Label(tab3, text="", fg="green", font=("Arial", 12))
 result_label_tab3.grid(row=5, column=0, columnspan=2, pady=10)
+
+# NEW: Add Enter key shortcuts for Tab 3
+func_entry_tab3.bind("<Return>", lambda e: compute_transform())
+lower_entry_tab3.bind("<Return>", lambda e: compute_transform())
+upper_entry_tab3.bind("<Return>", lambda e: compute_transform())
 
 # --- History Listbox bindings ---
 history_listbox.bind("<<ListboxSelect>>", refill_from_history)

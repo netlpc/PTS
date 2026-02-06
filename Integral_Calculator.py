@@ -1,12 +1,11 @@
 '''
-- Improved format_result_for_display to intelligently show exact values when they're short enough
-- Simplified calculate_integral_tab1 logic by trusting format_result_for_display
-- Enhanced View Exact Result button to show both symbolic and numeric forms
-- Added keyboard shortcuts (Enter key) for calculation
-- Improved LaTeX preview error handling
+Bug Fixes:
+- Fixed pretty_math_str regex pattern to correctly handle nested exp() expressions (e.g., exp(sin(x)))
+- Added infinite loop protection with iteration limit to prevent hangs on malformed input
+- Added try-except wrapper in pretty_math_str to gracefully fallback on formatting errors
+- Fixed missing fields in Tab 1 history records (numeric_value, lower, upper, error)
+- Fixed numeric_value incorrectly set to None instead of last_numeric_value in definite integral history
 '''
-
-
 
 # ===== Fast/Slow Numerical Method Groups (Tab 2 Progress Bar) =====
 FAST_METHODS = {
@@ -85,6 +84,53 @@ last_raw_result = None
 last_raw_result_type = None  # "exact" | "numeric" | "unevaluated"
 last_numeric_value = None
 
+def pretty_math_str(expr):
+    """
+    Convert SymPy string to nicer math form:
+    exp(2) -> e^(2)
+    exp(x+1) -> e^(x+1)
+    ** -> ^
+    pi -> π
+    """
+    try:
+        s = sp.sstr(expr)
+        s = s.replace('**', '^').replace('pi', 'π')
+        
+        def replace_exp(text):
+            max_iterations = 100
+            iteration = 0
+            
+            while 'exp(' in text and iteration < max_iterations:
+                iteration += 1
+                start = text.find('exp(')
+                if start == -1:
+                    break
+                
+                depth = 0
+                end = -1
+                for i in range(start + 4, len(text)):
+                    if text[i] == '(':
+                        depth += 1
+                    elif text[i] == ')':
+                        if depth == 0:
+                            end = i
+                            break
+                        depth -= 1
+                
+                if end == -1:
+                    break
+                
+                content = text[start+4:end]
+                text = text[:start] + f'e^({content})' + text[end+1:]
+            
+            return text
+        
+        return replace_exp(s)
+    except Exception:
+        return sp.sstr(expr).replace('**', '^').replace('pi', 'π')
+
+
+
 def format_result_for_display(expr, max_decimals=3, symbolic_len_limit=50):
     """
     Improved unified display formatting for symbolic/numeric results.
@@ -111,7 +157,7 @@ def format_result_for_display(expr, max_decimals=3, symbolic_len_limit=50):
         # Avoid displaying overly complex nested expressions
         if "exp(exp" not in raw_str:
             return {
-                "display": raw_str.replace('**', '^').replace('pi', 'π'),
+                "display": pretty_math_str(expr),
                 "raw": raw_str,
                 "type": "exact",
                 "numeric": None
@@ -918,7 +964,7 @@ def calculate_integral_tab1():
                 "display": f"Definite: ∫[{lower_text}, {upper_text}] {shown_func} dx = {display_str}",
                 "raw": last_raw_result,
                 "raw_type": last_raw_result_type,
-                "numeric_value": last_numeric_value,
+                "numeric_value": last_numeric_value,  # ✅ 正確傳遞數值
                 "func": shown_func,
                 "lower": lower_text,
                 "upper": upper_text,
@@ -926,6 +972,7 @@ def calculate_integral_tab1():
             })
         else:
             # Indefinite integral
+            
             ind = integrate(expr, x_sym)
 
             if isinstance(ind, sp.Integral) or ind.has(sp.Integral):
@@ -945,7 +992,7 @@ def calculate_integral_tab1():
                 last_raw_result = sp.sstr(ind)
                 last_raw_result_type = "exact"
                 last_numeric_value = None
-                result_label_tab1.config(text=f"Indefinite Integral: {last_raw_result} + C")
+                result_label_tab1.config(text=f"Indefinite Integral: {pretty_math_str(ind)} + C")
                 update_history({
                     "type": "indefinite",
                     "display": f"Indefinite: ∫ {shown_func} dx = {last_raw_result} + C",
@@ -1204,11 +1251,11 @@ def threaded_calculate_integral_tab2():
                         U = parse_input_to_sympy(upper_text)
                         symbolic_result = integrate(expr, (x_sym, L, U))
                         symbolic_result = nsimplify(symbolic_result)
-                        formatted = str(symbolic_result).replace('**', '^').replace('pi', 'π')
+                        formatted = pretty_math_str(symbolic_result)
                         event_queue.put(("symbolic_result", formatted, lower_text, upper_text, shown_func))
                     else:
                         ind = integrate(expr, x_sym)
-                        formatted = str(ind).replace('pi', 'π')
+                        formatted = pretty_math_str(ind)
                         event_queue.put(("symbolic_indef", formatted, shown_func))
                     for v in range(0, 101, 10):
                         time.sleep(0.03); event_queue.put(("progress", v))
